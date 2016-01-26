@@ -28,7 +28,7 @@ namespace xat_MITM_ {
         static void Main(string[] args) {
             //Well ty iiegor for this functions and methods
             Title = "Xat MITM - By Mark";
-            DeleteMenu(GetSystemMenu(GetConsoleWindow(), false), SC_CLOSE, MF_BYCOMMAND);         
+            DeleteMenu(GetSystemMenu(GetConsoleWindow(), false), SC_CLOSE, MF_BYCOMMAND);
             CancelKeyPress += (object sender, ConsoleCancelEventArgs e) => {
                 PerformShutDown();
                 e.Cancel = true;
@@ -44,15 +44,25 @@ namespace xat_MITM_ {
                 listen.Start();
                 WriteLine("[INFO] - MITM server started. Waiting for connection...");
                 while (true) {
-                    var client = await listen.AcceptTcpClientAsync();
-                    ThreadPool.QueueUserWorkItem(async state => await HandleClient(client));
+                    try {
+                        var client = await listen.AcceptTcpClientAsync();
+                        ThreadPool.QueueUserWorkItem(async state => await HandleClient(client));
+                    } catch {
+                        break;
+                    }
                 }
-            } catch {
+            } catch (Exception ex) {
+                WriteLine(ex.Message);
             }
         }
+        /// <summary>
+        /// TODO 
+        /// MAKE IT WORK WITH XAT
+        /// </summary>
         public static void ProxyServer() {
             try {
                 WriteLine("[INFO] - Starting proxy server...");
+                var regex = new Regex("sockDomain\":\"([\\w.]+)\",\"sockPort\":\"([\\w.]+)\"");
                 FiddlerApplication.Startup(8888, false, true, true);
                 FiddlerApplication.BeforeRequest += delegate (Session oS) {
                     oS.bBufferResponse = true;
@@ -60,7 +70,11 @@ namespace xat_MITM_ {
                 FiddlerApplication.BeforeResponse += delegate (Session oS) {
                     oS.utilDecodeResponse();
                     var Body = Encoding.UTF8.GetString(oS.responseBodyBytes);
-                    var regex = new Regex("sockDomain\":\"([\\w.]+)\",\"sockPort\":\"([\\w.]+)\"");
+                    if (oS.url.Contains("ip2")) {
+                        Body = Body.Replace("s.xat.com", "127.0.0.1");
+                        oS.utilSetResponseBody(Body);
+                        return;
+                    }
                     var check = regex.Match(Body);
                     if (check.Success) {
                         IP = check.Groups[1].Value;
@@ -72,88 +86,89 @@ namespace xat_MITM_ {
                         WriteLine($"[INFO] - CHAT.SWF is now using 127.0.0.1:1337.");
                         return;
                     }
-                    var oRegEx = @"<img[^>]*(.*?)/>";
-                    var Output = Regex.Replace(Body, oRegEx, "<p><big>Using Mark MITM. Well Thank you for using it.</big></p>");
+                    var Output  = Body + "<a href=\"http://xat.com/markian\"><p><big>Using Mark MITM. Well Thank you for using it.</big></p></a>";
                     oS.utilSetResponseBody(Output);
                 };
                 WriteLine("[INFO] - Proxy server listening on IP:127.0.0.1 and Port:8888");
-            } catch {
+            } catch (Exception) {
+                WriteLine("[ERROR] - Something went wrong with the proxy server.");
             }
         }
         public static async Task HandleClient(TcpClient Client) {
+            if(string.IsNullOrWhiteSpace(IP) || Port == 0) {
+                WriteLine("[ERROR] - We need to fetch the server ip and port. Please reload the page.");
+                Client.GetStream().Close();
+                Client.Close();
+                return;
+            }
             var server = new TcpClient();
-            var serverstream = server.GetStream();
-            var stream = Client.GetStream();
+            NetworkStream serverstream = null;
+            NetworkStream stream = null;
             try {
                 WriteLine("[INFO] - CHAT.SWF connected.");
                 WriteLine("[INFO] - Connecting to server...");
                 await server.ConnectAsync(IPAddress.Parse(IP), Port);
+                stream = Client.GetStream();
+                serverstream = server.GetStream();
                 new Thread(async () => {
-                    try { 
-                    var data = new Byte[4546];
-                        while (true) {
-                            var responseData = String.Empty;
+                    var data = new byte[4546];
+                    while (true) {
+                        try {
+                            var responseData = string.Empty;
                             var bytes = await stream.ReadAsync(data, 0, data.Length);
                             responseData = Encoding.UTF8.GetString(data, 0, bytes);
                             if (!string.IsNullOrWhiteSpace(responseData)) {
                                 Send(serverstream, responseData);
                             } else {
-                                stream.Close();
-                                serverstream.Close();
-                                server.GetStream().Close();
-                                server.Close();
-                                Client.GetStream().Close();
-                                Client.Close();
-                                WriteLine("[ERROR] - Please reload the ixat.");
-                                break;
+                                throw new Exception();
                             }
+                        } catch (Exception) {
+                            stream.Close();
+                            serverstream.Close();
+                            server.Close();
+                            Client.Close();
+                            WriteLine("[ERROR] - If you're having errors connecting, please reload the ixat.");
+                            break;
                         }
-                        
-                    } catch {
-
                     }
                 }).Start();
                 new Thread(async () => {
-                    try {
-                        var data = new Byte[4546];
-                        while (true) {
+                    var data = new Byte[4546];
+                    while (true) {
+                        try {
                             var responseData = string.Empty;
                             var bytes = await serverstream.ReadAsync(data, 0, data.Length);
                             responseData = Encoding.UTF8.GetString(data, 0, bytes);
                             if (!string.IsNullOrWhiteSpace(responseData)) {
                                 Send(stream, responseData);
                             } else {
-                                stream.Close();
-                                serverstream.Close();
-                                server.GetStream().Close();
-                                server.Close();
-                                Client.GetStream().Close();
-                                Client.Close();
-                                WriteLine("[ERROR] - Please reload the ixat.");
-                                break;
-                           }
+                                throw new Exception();
+                            }
+                        } catch (Exception) {
+                            stream.Close();
+                            serverstream.Close();
+                            server.Close();
+                            Client.Close();
+                            WriteLine("[ERROR] - If you're having errors connecting, please reload the ixat.");
+                            break;
                         }
-                    } catch {
-
                     }
                 }).Start();
             } catch (Exception) {
                 stream.Close();
                 serverstream.Close();
-                server.GetStream().Close();
                 server.Close();
-                Client.GetStream().Close();
                 Client.Close();
-                Write("[ERROR] - Please reload the ixat.");
+                WriteLine("[ERROR] - If you're having errors connecting, please reload the ixat.");
             }
         }
         public static async void Send(NetworkStream stream, string message) {
             try {
-                var data = Encoding.ASCII.GetBytes(message);
+                var data = Encoding.UTF8.GetBytes(message);
                 await stream.WriteAsync(data, 0, data.Length);
                 WriteLine($"[INFO] - Send packet -> {message}");
-            }
-            catch(Exception) {
+            } catch (Exception) {
+                WriteLine("[ERROR] - If you're having errors connecting, please reload the ixat.");
             }
         }
         public static void PerformShutDown() {
@@ -165,6 +180,9 @@ namespace xat_MITM_ {
                 Environment.Exit(0);
             }
         }
+        private static Random _random = new Random();
+        public static string GetRandomIp() => $"{_random.Next(0, 255)}.{_random.Next(0, 255)}.{_random.Next(0, 255)}.{_random.Next(0, 255)}";
+        
         public static async void Initialize() {
             ForegroundColor = ConsoleColor.Green;
             WriteLine(" _____          _______                            ");
